@@ -14,19 +14,19 @@
 #include "socket_utils.h"
 
 
-void init_context(handler_context_t *context, int client_fd, hash_map_t* hm) {
+void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
     request_init(&context->request);
     response_init(&context->response);
 
     vchar_init(&context->cbuff);
     vchar_forced_alloc(&context->cbuff);
     context->cppos = 0;
-    vchar_init(&context->sbuff);
-    vchar_forced_alloc(&context->sbuff);
+//    vchar_init(&context->sbuff);
+//    vchar_forced_alloc(&context->sbuff);
     context->sppos = 0;
     context->sended = 0;
 
-    context->is_from_cache = 0;
+//    context->is_from_cache = 0;
     context->connection_state = NOT_CONNECTED;
     context->client_fd = client_fd;
     context->server_fd = -1;
@@ -42,12 +42,12 @@ destroy_context(handler_context_t *context) {
     printf("%d\n", context->client_fd);
     request_destroy(&context->request);
     response_destroy(&context->response);
-    if(context->is_from_cache){
-        vchar_init(&context->sbuff);
-    }
-    else{
-        vchar_free(&context->sbuff);
-    }
+//    if(context->is_from_cache){
+//        vchar_init(&context->sbuff);
+//    }
+//    else{
+//        vchar_free(&context->sbuff);
+//    }
     vchar_free(&context->cbuff);
 
     close(context->client_fd);
@@ -59,30 +59,30 @@ destroy_context(handler_context_t *context) {
 }
 
 
-static char*
-str_copy(const char* src){
-    if(src == NULL){
+static char *
+str_copy(const char *src) {
+    if (src == NULL) {
         return NULL;
     }
     size_t len = strlen(src);
-    char* copy = malloc(len+1);
+    char *copy = malloc(len + 1);
     ASSERT(copy != NULL);
-    memcpy(copy, src, len+1);
+    memcpy(copy, src, len + 1);
     return copy;
 }
 
 static void
-cache(handler_context_t *context){
+add_to_cache(handler_context_t *context) {
     request_t *req_copy = malloc(sizeof(request_t));
-    vchar* resp_buff_copy = malloc(sizeof(vchar));
-    ASSERT(req_copy != NULL && resp_buff_copy != NULL);
+    //vchar* resp_buff_copy = malloc(sizeof(vchar));
+    ASSERT(req_copy != NULL);// && resp_buff_copy != NULL);
     request_init(req_copy);
     req_copy->type = str_copy(context->request.type);
     req_copy->uri = str_copy(context->request.uri);
     req_copy->version = str_copy(context->request.version);
     req_copy->body = str_copy(context->request.body);
 
-    for(size_t i=0; i<context->request.headers.cnt; ++i){
+    for (size_t i = 0; i < context->request.headers.cnt; ++i) {
         header_t copy;
         header_t *orig = vheader_t_get(&context->request.headers, i);
         copy.value = str_copy(orig->value);
@@ -90,14 +90,15 @@ cache(handler_context_t *context){
         vheader_t_push_back(&req_copy->headers, &copy);
     }
 
-    vchar_init(resp_buff_copy);
-    resp_buff_copy->cnt = context->sbuff.cnt;
-    resp_buff_copy->capacity = context->sbuff.capacity;
-    resp_buff_copy->ptr = malloc(resp_buff_copy->capacity);
-    ASSERT(resp_buff_copy->ptr != NULL);
-    memcpy(resp_buff_copy->ptr, context->sbuff.ptr, context->sbuff.cnt);
+    context->entry = malloc(sizeof(cache_entry_t));
+    ASSERT(context->entry != NULL);
+    vchar_init(&context->entry->buff);
+    context->entry->events = malloc(sizeof(int) * 100);
+    context->entry->cnt_events = 0;
+    context->entry->status = DOWNLOADING;
+    context->is_master = 1;
 
-    hash_map_put(context->hm, req_copy, resp_buff_copy);
+    hash_map_put(context->hm, req_copy, &context->entry);
 }
 
 
@@ -127,7 +128,7 @@ read_to_vchar(int fd, vchar *buff, size_t *read_) {
 }
 
 
-enum STEP_RETURN{
+enum STEP_RETURN {
     CONTINUE,
     WAIT
 };
@@ -135,7 +136,7 @@ enum STEP_RETURN{
 
 static void
 parsing_req_type_step(handler_context_t *context, int fd, int events, int non_splitted) {
-    if(!non_splitted) {
+    if (!non_splitted) {
         ASSERT(context->handling_step == PARSING_REQ_TYPE &&
                fd == context->client_fd && (events & POLLIN));
         ASSERT_RETURN2_C(read_to_vchar(context->client_fd, &context->cbuff, NULL) == SUCCESS,
@@ -190,8 +191,8 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
                              destroy_context(context),);
 
 #ifndef KEEP_ALIVE
-            header_t* connection = find_header(&context->request.headers, "Connection");
-            if(connection!=NULL){
+            header_t *connection = find_header(&context->request.headers, "Connection");
+            if (connection != NULL) {
                 free(connection->value);
                 connection->value = str_copy("close");
                 request2vchar(&context->request, &context->cbuff);
@@ -199,23 +200,22 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
 #endif
 
 #ifdef CACHED
-            vchar* cached_resp = (vchar*) hash_map_get(context->hm, &context->request);
-            if(cached_resp != NULL){
-                context->is_from_cache = 1;
+            cache_entry_t** entryPtr = (cache_entry_t **) hash_map_get(context->hm, &context->request);
+            cache_entry_t * entry = entryPtr==NULL? NULL : *entryPtr;
+            if (entry != NULL) {
+                context->is_master = 0;
+                context->entry = entry;
                 fprintf(stderr, "from cache\n");
-                context->sbuff.cnt = cached_resp->cnt;
-                context->sbuff.capacity = cached_resp->capacity;
-                context->sbuff.ptr = cached_resp->ptr;
-//                context->sbuff.ptr = malloc(cached_resp->capacity);
-//                ASSERT(context->sbuff.ptr != NULL);
-//                memcpy(context->sbuff.ptr, cached_resp->ptr, context->sbuff.cnt);
+
                 context->client_events = POLLOUT;
                 context->server_events = 0;
                 context->handling_step = SENDING_RESP;
+                context->sended = 0;
                 return;
             }
 #endif
-            context->is_from_cache = 0;
+            context->is_master = 1;
+            add_to_cache(context);
             context->handling_step = CONNECT_STEP;
             connect_step(context, -1, 0);
             return;
@@ -291,12 +291,12 @@ parsing_resp_code_step(handler_context_t *context, int fd, int events) {
     ASSERT(context->handling_step == PARSING_RESP_CODE &&
            fd == context->server_fd && (events & POLLIN));
 
-    ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->sbuff, NULL) == SUCCESS,
+    ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->entry->buff, NULL) == SUCCESS,
                      destroy_context(context),);
 
-    const char *sppos = context->sbuff.ptr + context->sppos;
+    const char *sppos = context->entry->buff.ptr + context->sppos;
     int status = parse_response_code(&sppos, &context->response);
-    context->sppos = sppos - context->sbuff.ptr;
+    context->sppos = sppos - context->entry->buff.ptr;
 
     ASSERT_RETURN2_C(status != PARSING_ERROR,
                      destroy_context(context),);
@@ -313,15 +313,15 @@ parsing_resp_headers_step(handler_context_t *context, int fd, int events, int no
            fd == context->server_fd && (events & POLLIN));
 
     if (!non_splitted) {
-        ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->sbuff, NULL) == SUCCESS,
+        ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->entry->buff, NULL) == SUCCESS,
                          destroy_context(context), WAIT);
     }
 
     while (1) {
         header_t header;
-        const char *sppos = context->sbuff.ptr + context->sppos;
+        const char *sppos = context->entry->buff.ptr + context->sppos;
         int status = parse_next_header(&sppos, &header);
-        context->sppos = sppos - context->sbuff.ptr;
+        context->sppos = sppos - context->entry->buff.ptr;
 
         ASSERT_RETURN2_C(status != PARSING_ERROR,
                          destroy_context(context), WAIT);
@@ -337,7 +337,7 @@ parsing_resp_headers_step(handler_context_t *context, int fd, int events, int no
             header_t *cl_header = find_header(&context->response.headers, "Content-Length");
             header_t *ch_header = find_header(&context->response.headers, "Transfer-Encoding");
             ///TODO
-            if(cl_header==NULL && ch_header == NULL){
+            if (cl_header == NULL && ch_header == NULL) {
                 context->client_events = POLLOUT;
                 context->server_events = 0;
                 context->sended = 0;
@@ -349,7 +349,7 @@ parsing_resp_headers_step(handler_context_t *context, int fd, int events, int no
 
             context->response.content_length = cl_header != NULL ?
                                                (long) strtol(cl_header->value, NULL, 10) : -1;
-            context->read_ = context->sbuff.cnt - context->sppos;
+            context->read_ = context->entry->buff.cnt - context->sppos;
             context->chunk_size = -1;
             context->chunk_read = 0;
             context->client_events = POLLOUT;
@@ -368,12 +368,18 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
 
     if (!non_splitted) {
         size_t read_;
-        ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->sbuff, &read_) == SUCCESS,
+        ASSERT_RETURN2_C(read_to_vchar(context->server_fd, &context->entry->buff, &read_) == SUCCESS,
                          destroy_context(context),);
         context->read_ += read_;
         ///TODO
-        if(read_ > 0){
+        if (read_ > 0) {
             context->client_events = POLLOUT;
+            if(context->is_master){
+                for(size_t i=0; i<context->entry->cnt_events; ++i){
+                    *context->entry->events[i] = POLLOUT;
+                }
+                context->entry->cnt_events = 0;
+            }
         }
     }
 
@@ -382,10 +388,10 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
         && context->response.content_length <= context->read_) {
         context->client_events = POLLOUT;
         context->server_events = 0;
-        context->sppos = context->sbuff.cnt;
+        context->sppos = context->entry->buff.cnt;
         context->handling_step = SENDING_RESP;
 #ifdef CACHED
-        cache(context);
+        context->entry->status = VALID;
 #endif
         return;
     }
@@ -393,7 +399,7 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
     if (context->response.content_length == -1) {
         while (1) {
             if (context->chunk_size == -1) {
-                char *sppos = context->sbuff.ptr + context->sppos;
+                char *sppos = context->entry->buff.ptr + context->sppos;
                 char *crlf = strstr(sppos, "\r\n");
                 if (crlf == NULL) {
                     return;
@@ -403,7 +409,7 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
                 context->sppos += crlf - sppos + 2;
             }
             size_t ra = MIN(context->chunk_size - context->chunk_read,
-                            context->sbuff.cnt - context->sppos);
+                            context->entry->buff.cnt - context->sppos);
 
             context->sppos += ra;
             context->chunk_read += ra;
@@ -417,7 +423,7 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
 //                           context->sbuff.ptr + context->sbuff.cnt - context->read_, context->read_);
                     context->handling_step = SENDING_RESP;
 #ifdef CACHED
-                    cache(context);
+                    context->entry->status = VALID;
 #endif
                     return;
                 }
@@ -437,13 +443,17 @@ send_resp_in_receiving(handler_context_t *context, int fd, int events) {
     ASSERT(context->handling_step == PARSING_RESP_BODY || context->handling_step == SENDING_RESP &&
                                                           fd == context->client_fd && (events & POLLOUT));
 
-    if (context->sbuff.cnt - context->sended > 0) {
-        ssize_t cnt = write(context->client_fd, context->sbuff.ptr + context->sended,
-                            context->sbuff.cnt - context->sended);
+    if (context->entry->buff.cnt - context->sended > 0) {
+        ssize_t cnt = write(context->client_fd, context->entry->buff.ptr + context->sended,
+                            context->entry->buff.cnt - context->sended);
         ASSERT_RETURN2_C(cnt > 0, destroy_context(context),);
         context->sended += cnt;
-    }
-    else{
+    } else {
+        if(!context->is_master){
+            cache_entry_t *entry = context->entry;
+            entry->events[entry->cnt_events] = &context->client_events;
+            ++entry->cnt_events;
+        }
         context->client_events = 0;
     }
 }
@@ -452,8 +462,7 @@ send_resp_in_receiving(handler_context_t *context, int fd, int events) {
 static void
 send_resp_step(handler_context_t *context, int fd, int events) {
     send_resp_in_receiving(context, fd, events);
-
-    if (context->sended == context->sbuff.cnt) {
+    if (context->sended == context->entry->buff.cnt && context->entry->status == VALID) {
 #ifdef KEEP_ALIVE
         header_t *connection = find_header(&context->response.headers, "Connection");
         if (connection != NULL && strcasecmp(connection->value, "Keep-Alive") == 0) {
@@ -519,7 +528,7 @@ handle(handler_context_t *context, int fd, int events) {
     }
     if (context->handling_step == PARSING_RESP_HEADERS) {
         //fprintf(stderr, "parsing resp head\n");
-        if(parsing_resp_headers_step(context, fd, events, non_splitted) == WAIT){
+        if (parsing_resp_headers_step(context, fd, events, non_splitted) == WAIT) {
             return;
         }
         non_splitted = 1;

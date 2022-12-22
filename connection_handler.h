@@ -37,6 +37,22 @@ enum ConnectionState{
 };
 
 
+enum CacheEntryStatus{
+    DOWNLOADING,
+    VALID,
+    INVALID
+};
+
+
+struct CacheEntry{
+    vchar buff;
+    int status;
+    int** events;
+    size_t cnt_events;
+};
+typedef struct CacheEntry cache_entry_t;
+
+
 struct HttpConnectionHandlerContext{
     int client_fd;
     int server_fd;
@@ -53,8 +69,10 @@ struct HttpConnectionHandlerContext{
     size_t sended;
     size_t read_;
 
-    vchar sbuff;
-    int is_from_cache;
+    cache_entry_t *entry;
+    int is_master;
+    size_t my_id;
+
     size_t sppos; //server processing position
     long chunk_size;
     size_t chunk_read;
