@@ -57,6 +57,14 @@ do{\
     } \
 }while(0)
 
+#define CRITICAL_M(mutex__, code__) \
+do{                         \
+    ASSERT(pthread_mutex_lock(&(mutex__)) == 0); \
+    code__;                         \
+    ASSERT(pthread_mutex_unlock(&(mutex__)) == 0);\
+                            \
+}while(0)
+
 #define MIN(a__, b__) ((a__) > (b__) ? (b__) : (a__))
 
 #define ABS(a__) ((a__) > 0? (a__) : (-(a__)))

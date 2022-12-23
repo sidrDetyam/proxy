@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <pthread.h>
 
 #include "http_header_parser.h"
 #include "hash_map.h"
@@ -38,16 +39,18 @@ enum ConnectionState{
 
 
 enum CacheEntryStatus{
-    DOWNLOADING,
+    DOWNLOADING = 3333,
     VALID,
     INVALID
 };
 
 
 struct CacheEntry{
+    pthread_mutex_t lock;
+    int cnt_of_clients;
     vchar buff;
     int status;
-    int** events;
+    int** waiter_client_events;
     size_t cnt_events;
 };
 typedef struct CacheEntry cache_entry_t;
@@ -71,7 +74,7 @@ struct HttpConnectionHandlerContext{
 
     cache_entry_t *entry;
     int is_master;
-    size_t my_id;
+    size_t my_waiter_id;
 
     size_t sppos; //server processing position
     long chunk_size;

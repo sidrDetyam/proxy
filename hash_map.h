@@ -41,4 +41,10 @@ hash_map_put(hash_map_t* hm, void* key, void* value);
 void*
 hash_map_get(hash_map_t* hm, void* key);
 
+void
+lock(hash_map_t* hm);
+
+void
+unlock(hash_map_t* hm);
+
 #endif //PTHREAD___HASH_MAP_H
