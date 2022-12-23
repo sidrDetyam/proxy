@@ -89,7 +89,7 @@ main() {
     size_t fds_count = 1;
 
     hash_map_t hm;
-    hash_map_init(&hm, sizeof(request_t), sizeof(vchar), request_hash, request_equals);
+    hash_map_init(&hm, sizeof(request_t), sizeof(cache_entry_t*), request_hash, request_equals);
 
     while (1) {
         int cnt_fds = poll(fds, fds_count, POLL_TIMEOUT);

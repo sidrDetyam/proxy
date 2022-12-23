@@ -17,7 +17,11 @@ hash_map_init(hash_map_t* hm, size_t ks, size_t vs, int (*hash)(void*), int (*eq
     hm->buckets = malloc(sizeof(void *) * BUCKETS_SIZE);
     ASSERT(hm->buckets != NULL);
     memset(hm->buckets, 0, sizeof(void *) * BUCKETS_SIZE);
-    pthread_mutex_init(&hm->mutex, NULL);
+
+    pthread_mutexattr_t attr;
+    ASSERT(pthread_mutexattr_init(&attr) == 0);
+    ASSERT(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) == 0);
+    ASSERT(pthread_mutex_init(&hm->mutex, &attr) == 0);
 }
 
 static vpair_t *
@@ -98,4 +102,15 @@ hash_map_get(hash_map_t* hm, void* key){
     }
     ASSERT(pthread_mutex_unlock(&hm->mutex) == 0);
     return NULL;
+}
+
+
+void
+lock(hash_map_t* hm){
+    ASSERT(pthread_mutex_lock(&hm->mutex)==0);
+}
+
+void
+unlock(hash_map_t* hm){
+    ASSERT(pthread_mutex_unlock(&hm->mutex)==0);
 }
