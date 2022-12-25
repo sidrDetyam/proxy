@@ -57,3 +57,6 @@ void
 CONCAT(VECTOR, _free_ptr) (struct VECTOR* vector);
 
 #undef ELEMENT_TYPE
+#undef CONCAT
+#undef CONCAT_V
+#undef VECTOR
