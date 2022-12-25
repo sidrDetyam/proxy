@@ -41,17 +41,26 @@ enum ConnectionState{
 enum CacheEntryStatus{
     DOWNLOADING = 3333,
     VALID,
+    NEED_NEW_MASTER,
     INVALID
 };
+
+struct HttpConnectionHandlerContext;
+typedef struct HttpConnectionHandlerContext handler_context_t;
+
 
 
 struct CacheEntry{
     pthread_mutex_t lock;
+
     int cnt_of_clients;
+    //handler_context_t ** clients;
     vchar buff;
     int status;
-    int** waiter_client_events;
-    size_t cnt_events;
+    handler_context_t ** waiter_client_events;
+    size_t cnt_waiters;
+
+    handler_context_t *state;
 };
 typedef struct CacheEntry cache_entry_t;
 
@@ -74,7 +83,7 @@ struct HttpConnectionHandlerContext{
 
     cache_entry_t *entry;
     int is_master;
-    size_t my_waiter_id;
+    ssize_t my_waiter_id;
 
     size_t sppos; //server processing position
     long chunk_size;
@@ -84,12 +93,13 @@ struct HttpConnectionHandlerContext{
 
     int handling_step;
 };
-typedef struct HttpConnectionHandlerContext handler_context_t;
 
 
-//#define ELEMENT_TYPE handler_context_t;
-//#include "cvector_def.h"
+void
+store_master_state_on_client_error(handler_context_t* masters_context);
 
+void
+load_master_state(handler_context_t* context);
 
 void
 init_context(handler_context_t* context, int client_fd, hash_map_t* hm);

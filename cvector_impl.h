@@ -4,6 +4,16 @@
 #endif
 
 
+#ifndef MAX_ALLOC_SIZE
+#define MAX_ALLOC_SIZE 1000000
+#endif
+
+
+#define CONCAT(a,b) CONCAT_V(a,b)
+#define CONCAT_V(a,b) a##b
+#define VECTOR CONCAT(v, ELEMENT_TYPE)
+
+
 __attribute__((unused)) ELEMENT_TYPE *
 CONCAT(VECTOR, _get)(struct VECTOR *vector, size_t ind) {
     //assert("Out of range" && vector->cnt <= ind);
@@ -103,3 +113,7 @@ CONCAT(VECTOR, _free_ptr)(struct VECTOR *vector) {
 
 #undef REALLOC_RATIO
 #undef ELEMENT_TYPE
+#undef CONCAT
+#undef CONCAT_V
+#undef VECTOR
+#undef MAX_ALLOC_SIZE
