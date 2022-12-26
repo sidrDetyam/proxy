@@ -1,4 +1,6 @@
 
+#include "common.h"
+
 #ifndef REALLOC_RATIO
 #define REALLOC_RATIO 2
 #endif
@@ -9,8 +11,8 @@
 #endif
 
 
-#define CONCAT(a,b) CONCAT_V(a,b)
-#define CONCAT_V(a,b) a##b
+#define CONCAT(a, b) CONCAT_V(a,b)
+#define CONCAT_V(a, b) a##b
 #define VECTOR CONCAT(v, ELEMENT_TYPE)
 
 
@@ -36,14 +38,16 @@ CONCAT(VECTOR, _back)(struct VECTOR *vector) {
 
 void
 CONCAT(VECTOR, _forced_alloc)(struct VECTOR *vector) {
-    void *tmp = realloc(vector->ptr,
-                        (vector->capacity * REALLOC_RATIO + 1) * sizeof(ELEMENT_TYPE));
+    size_t new_capacity = MIN((MAX_ALLOC_SIZE / sizeof(ELEMENT_TYPE) + vector->capacity),
+                              (vector->capacity * REALLOC_RATIO + 1));
+
+    void *tmp = realloc(vector->ptr, new_capacity * sizeof(ELEMENT_TYPE));
     if (tmp == NULL) {
         perror("Out of memory");
         exit(1);
     }
 
-    vector->capacity = vector->capacity * REALLOC_RATIO + 1;
+    vector->capacity = new_capacity;
     vector->ptr = tmp;
 }
 
@@ -78,9 +82,9 @@ CONCAT(VECTOR, _pop_back)(struct VECTOR *vector) {
 }
 
 void
-CONCAT(VECTOR, _remove) (struct VECTOR* vector, size_t ind){
-    for(size_t i = ind; i < vector->cnt; ++i){
-        memcpy(&vector->ptr[i], &vector->ptr[i+1], sizeof(ELEMENT_TYPE));
+CONCAT(VECTOR, _remove)(struct VECTOR *vector, size_t ind) {
+    for (size_t i = ind; i < vector->cnt; ++i) {
+        memcpy(&vector->ptr[i], &vector->ptr[i + 1], sizeof(ELEMENT_TYPE));
     }
     --vector->cnt;
 }

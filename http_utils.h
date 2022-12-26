@@ -75,4 +75,10 @@ parse_response_code(const char** buf, response_t* response);
 void
 request2vchar(request_t* req, vchar* buff);
 
+int
+request_hash(void *req_);
+
+int
+request_equals(void *req1_, void *req2_);
+
 #endif //PTHREAD_HTTP_HEADER_PARSER_H

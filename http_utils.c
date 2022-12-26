@@ -2,7 +2,7 @@
 // Created by argem on 01.12.2022.
 //
 
-#include "http_header_parser.h"
+#include "http_utils.h"
 
 #include <string.h>
 
@@ -11,8 +11,6 @@
 
 #define ELEMENT_TYPE char
 #include "cvector_impl.h"
-
-#include "common.h"
 
 
 void
@@ -158,12 +156,14 @@ add_string2vchar(const char* str, vchar* buff){
     buff->cnt += len;
 }
 
+
 static void
 add_strings2vchar(const char** strs, vchar* buff){
     for(const char** it = strs; *it != NULL; ++it){
         add_string2vchar(*it, buff);
     }
 }
+
 
 void
 request2vchar(request_t* req, vchar* buff){
@@ -177,4 +177,47 @@ request2vchar(request_t* req, vchar* buff){
         add_strings2vchar(hparts, buff);
     }
     add_string2vchar("\r\n", buff);
+}
+
+
+static int
+str_pol_hash(const char *str) {
+    const int p = 31;
+    const int m = 100043;
+    int hash = 0;
+    long p_pow = 1;
+    for (const char *it = str; *it; ++it) {
+        hash = (int) ((hash + (*it - 'a' + 1) * p_pow) % m);
+        p_pow = (p_pow * p) % m;
+    }
+    return hash;
+}
+
+
+int
+request_hash(void *req_) {
+    request_t *req = (request_t *) req_;
+    return str_pol_hash(req->type) + str_pol_hash(req->version) + str_pol_hash(req->uri);
+}
+
+
+int
+request_equals(void *req1_, void *req2_) {
+    request_t *req1 = req1_;
+    request_t *req2 = req2_;
+    static const char *headers[] = {"Host", "Range", NULL};
+
+    int eq = strcmp(req1->type, req2->type) == 0
+             && strcmp(req1->version, req2->version) == 0
+             && strcmp(req1->uri, req2->uri) == 0;
+
+    for (const char **it = headers; *it != NULL && eq; ++it) {
+        header_t *host1 = find_header(&req1->headers, *it);
+        header_t *host2 = find_header(&req2->headers, *it);
+        if (host1 != NULL && host2 != NULL) {
+            eq = strcmp(host1->value, host2->value) == 0;
+        }
+    }
+
+    return eq;
 }
