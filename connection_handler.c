@@ -14,15 +14,15 @@
 
 
 void
-store_master_state_on_client_error(handler_context_t* masters_context){
+store_master_state_on_client_error(handler_context_t *masters_context) {
     ASSERT(masters_context->entry->status == NEED_NEW_MASTER);
     memcpy(masters_context->entry->state, masters_context, sizeof(handler_context_t));
 }
 
 void
-load_master_state(handler_context_t* context){
+load_master_state(handler_context_t *context) {
     ASSERT(context->handling_step == SENDING_RESP && context->entry->state->handling_step >= PARSING_RESP_BODY);
-    handler_context_t* state = context->entry->state;
+    handler_context_t *state = context->entry->state;
     context->handling_step = state->handling_step;
     context->server_fd = state->server_fd;
     context->sppos = state->sppos;
@@ -64,12 +64,12 @@ void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
 
 
 static void
-wakeup(handler_context_t* context){
+wakeup(handler_context_t *context) {
     context->client_events = POLLOUT;
-    if(context->is_master){
-        for(size_t i=0; i<context->entry->cnt_waiters; ++i){
-            handler_context_t * waiter = context->entry->waiter_client_events[i];
-            if(waiter != NULL) {
+    if (context->is_master) {
+        for (size_t i = 0; i < context->entry->cnt_waiters; ++i) {
+            handler_context_t *waiter = context->entry->waiter_client_events[i];
+            if (waiter != NULL) {
                 (*waiter).client_events = POLLOUT;
                 (*waiter).my_waiter_id = -1;
             }
@@ -86,22 +86,21 @@ destroy_context(handler_context_t *context) {
     response_destroy(&context->response);
     vchar_free(&context->cbuff);
 
-    if(context->entry != NULL) {
+    if (context->entry != NULL) {
         ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
         if (context->is_master) {
             wakeup(context);
-            if(context->handling_step == PARSING_RESP_BODY && context->entry->cnt_of_clients>1){
+            if (context->handling_step == PARSING_RESP_BODY && context->entry->cnt_of_clients > 1) {
                 context->entry->status = NEED_NEW_MASTER;
                 store_master_state_on_client_error(context);
                 context->server_fd = -1;
-            }
-            else if (context->handling_step != HANDLED) {
+            } else if (context->handling_step != HANDLED) {
                 context->entry->status = INVALID;
                 vchar_free(&context->entry->buff);
             }
             context->entry->cnt_of_clients--;
         } else {
-            if(context->my_waiter_id != -1) {
+            if (context->my_waiter_id != -1) {
                 context->entry->waiter_client_events[context->my_waiter_id] = NULL;
             }
         }
@@ -113,7 +112,7 @@ destroy_context(handler_context_t *context) {
         close(context->server_fd);
     }
 
-    if(context->handling_step != HANDLED) {
+    if (context->handling_step != HANDLED) {
         context->handling_step = HANDLED_EXCEPTIONALLY;
     }
 }
@@ -133,11 +132,11 @@ str_copy(const char *src) {
 
 
 static void
-init_cache_entry(cache_entry_t* entry){
+init_cache_entry(cache_entry_t *entry) {
     vchar_init(&entry->buff);
     //TODO
-    entry->waiter_client_events = malloc(sizeof(int*) * 1000);
-    entry->waiter_client_events = malloc(sizeof(handler_context_t*) * 1000);
+    entry->waiter_client_events = malloc(sizeof(int *) * 1000);
+    entry->waiter_client_events = malloc(sizeof(handler_context_t *) * 1000);
     entry->state = malloc(sizeof(handler_context_t));
     entry->cnt_of_clients = 0;
     entry->cnt_waiters = 0;
@@ -149,8 +148,7 @@ init_cache_entry(cache_entry_t* entry){
 static void
 add_to_cache(handler_context_t *context) {
     request_t *req_copy = malloc(sizeof(request_t));
-    //vchar* resp_buff_copy = malloc(sizeof(vchar));
-    ASSERT(req_copy != NULL);// && resp_buff_copy != NULL);
+    ASSERT(req_copy != NULL);
     request_init(req_copy);
     req_copy->type = str_copy(context->request.type);
     req_copy->uri = str_copy(context->request.uri);
@@ -205,13 +203,11 @@ enum STEP_RETURN {
 
 
 static void
-parsing_req_type_step(handler_context_t *context, int fd, int events, int non_splitted) {
-    if (!non_splitted) {
-        ASSERT(context->handling_step == PARSING_REQ_TYPE &&
-               fd == context->client_fd && (events & POLLIN));
-        ASSERT_RETURN2_C(read_to_vchar(context->client_fd, &context->cbuff, NULL) == SUCCESS,
-                         destroy_context(context),);
-    }
+parsing_req_type_step(handler_context_t *context, int fd, int events) {
+    ASSERT(context->handling_step == PARSING_REQ_TYPE &&
+           fd == context->client_fd && (events & POLLIN));
+    ASSERT_RETURN2_C(read_to_vchar(context->client_fd, &context->cbuff, NULL) == SUCCESS,
+                     destroy_context(context),);
 
     const char *cppos = context->cbuff.ptr + context->cppos;
     int status = parse_req_type(&cppos, &context->request);
@@ -260,18 +256,16 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
             ASSERT_RETURN2_C(strcmp(context->request.type, "GET") == 0,
                              destroy_context(context),);
 
-//#ifndef KEEP_ALIVE
-//            header_t *connection = find_header(&context->request.headers, "Connection");
-//            if (connection != NULL) {
-//                free(connection->value);
-//                connection->value = str_copy("close");
-//                request2vchar(&context->request, &context->cbuff);
-//            }
-//#endif
+            header_t *connection = find_header(&context->request.headers, "Connection");
+            if (connection != NULL) {
+                free(connection->value);
+                connection->value = str_copy("close");
+                request2vchar(&context->request, &context->cbuff);
+            }
 
             lock(context->hm);
-            cache_entry_t** entryPtr = (cache_entry_t **) hash_map_get(context->hm, &context->request);
-            cache_entry_t * entry = entryPtr==NULL? NULL : *entryPtr;
+            cache_entry_t **entryPtr = (cache_entry_t **) hash_map_get(context->hm, &context->request);
+            cache_entry_t *entry = entryPtr == NULL ? NULL : *entryPtr;
             if (entry != NULL && entry->status != INVALID) {
                 context->is_master = 0;
                 context->entry = entry;
@@ -367,14 +361,14 @@ parsing_resp_code_step(handler_context_t *context, int fd, int events) {
     ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
     int rs = read_to_vchar(context->server_fd, &context->entry->buff, NULL);
     int status;
-    if(rs == SUCCESS){
+    if (rs == SUCCESS) {
         const char *sppos = context->entry->buff.ptr + context->sppos;
         status = parse_response_code(&sppos, &context->response);
         context->sppos = sppos - context->entry->buff.ptr;
     }
     ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
 
-    if(rs==ERROR || status == PARSING_ERROR){
+    if (rs == ERROR || status == PARSING_ERROR) {
         destroy_context(context);
         return;
     }
@@ -393,13 +387,13 @@ parsing_resp_headers_step(handler_context_t *context, int fd, int events, int no
     ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
     if (!non_splitted) {
         int rs = read_to_vchar(context->server_fd, &context->entry->buff, NULL);
-        if(rs == ERROR){
+        if (rs == ERROR) {
             ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
             destroy_context(context);
             return WAIT;
         }
     }
-    char const* bptr = context->entry->buff.ptr;
+    char const *bptr = context->entry->buff.ptr;
     const size_t bcnt = context->entry->buff.cnt;
     ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
 
@@ -452,18 +446,18 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
     ASSERT(context->handling_step == PARSING_RESP_BODY &&
            fd == context->server_fd && (events & POLLIN));
 
-    char* bptr;
+    char *bptr;
     size_t bcnt;
     if (!non_splitted) {
         size_t read_;
         ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
         int rs = read_to_vchar(context->server_fd, &context->entry->buff, &read_);
-        if(rs == ERROR){
+        if (rs == ERROR) {
             ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
             destroy_context(context);
             return;
         }
-        if(read_ > 0){
+        if (read_ > 0) {
             wakeup(context);
             context->read_ += read_;
         }
@@ -526,33 +520,32 @@ send_resp_in_receiving(handler_context_t *context, int fd, int events) {
     ASSERT(context->handling_step == PARSING_RESP_BODY || context->handling_step == SENDING_RESP &&
                                                           fd == context->client_fd && (events & POLLOUT));
 
-    ASSERT(pthread_mutex_lock(&context->entry->lock)==0);
-    if(context->entry->status == INVALID){
-        ASSERT(pthread_mutex_unlock(&context->entry->lock)==0);
+    ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
+    if (context->entry->status == INVALID) {
+        ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
         destroy_context(context);
         return;
-    }
-    else if(context->entry->status == NEED_NEW_MASTER){
+    } else if (context->entry->status == NEED_NEW_MASTER) {
         load_master_state(context);
-        ASSERT(pthread_mutex_unlock(&context->entry->lock)==0);
+        ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
         return;
     }
 
     if (context->entry->buff.cnt - context->sended > 0) {
         ssize_t cnt = write(context->client_fd, context->entry->buff.ptr + context->sended,
                             context->entry->buff.cnt - context->sended);
-        ASSERT(pthread_mutex_unlock(&context->entry->lock)==0);
+        ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
         ASSERT_RETURN2_C(cnt > 0, destroy_context(context),);
         context->sended += cnt;
     } else {
-        if(!context->is_master){
+        if (!context->is_master) {
             cache_entry_t *entry = context->entry;
             entry->waiter_client_events[entry->cnt_waiters] = context;
-            context->my_waiter_id = (ssize_t)entry->cnt_waiters;
+            context->my_waiter_id = (ssize_t) entry->cnt_waiters;
             ++entry->cnt_waiters;
         }
         context->client_events = 0;
-        ASSERT(pthread_mutex_unlock(&context->entry->lock)==0);
+        ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
     }
 }
 
@@ -573,39 +566,32 @@ handle(handler_context_t *context, int fd, int events) {
     int non_splitted = 0;
 
     if (context->handling_step == PARSING_REQ_TYPE) {
-        //fprintf(stderr, "parsing req type\n");
-        parsing_req_type_step(context, fd, events, non_splitted);
+        parsing_req_type_step(context, fd, events);
         non_splitted = 1;
     }
     if (context->handling_step == PARSING_REQ_HEADERS) {
-        //fprintf(stderr, "parsing req head\n");
         parsing_req_headers_step(context, fd, events, non_splitted);
         return;
     }
     if (context->handling_step == CONNECT_STEP) {
-        //fprintf(stderr, "connect\n");
         connect_step(context, fd, events);
         return;
     }
     if (context->handling_step == SENDING_REQ) {
-        //fprintf(stderr, "sending req\n");
         sending_req_step(context, fd, events);
         return;
     }
     if (context->handling_step == PARSING_RESP_CODE) {
-        //fprintf(stderr, "parsing resp code\n");
         parsing_resp_code_step(context, fd, events);
         non_splitted = 1;
     }
     if (context->handling_step == PARSING_RESP_HEADERS) {
-        //fprintf(stderr, "parsing resp head\n");
         if (parsing_resp_headers_step(context, fd, events, non_splitted) == WAIT) {
             return;
         }
         non_splitted = 1;
     }
     if (context->handling_step == PARSING_RESP_BODY) {
-        //fprintf(stderr, "parsing resp body\n");
         if (fd == context->server_fd) {
             parsing_resp_body(context, fd, events, non_splitted);
         }
@@ -615,7 +601,6 @@ handle(handler_context_t *context, int fd, int events) {
         return;
     }
     if (context->handling_step == SENDING_RESP) {
-        //fprintf(stderr, "sending resp\n");
         send_resp_step(context, fd, events);
     }
 }
