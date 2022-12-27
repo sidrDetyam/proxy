@@ -81,4 +81,10 @@ request_hash(void *req_);
 int
 request_equals(void *req1_, void *req2_);
 
+char *
+str_copy(const char *src);
+
+request_t *
+request_copy(request_t* req);
+
 #endif //PTHREAD_HTTP_HEADER_PARSER_H

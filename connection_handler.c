@@ -17,7 +17,9 @@ void
 store_master_state_on_client_error(handler_context_t *masters_context) {
     ASSERT(masters_context->entry->status == NEED_NEW_MASTER);
     memcpy(masters_context->entry->state, masters_context, sizeof(handler_context_t));
+    //memcpy(&masters_context->entry->state->request, request_copy(&masters_context->request), sizeof(request_t));
 }
+
 
 void
 load_master_state(handler_context_t *context) {
@@ -35,6 +37,7 @@ load_master_state(handler_context_t *context) {
     context->is_master = 1;
     context->entry->status = DOWNLOADING;
     context->response.content_length = state->response.content_length;
+    //memcpy(&context->request, state->)
 }
 
 
@@ -47,12 +50,9 @@ void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
     vchar_init(&context->cbuff);
     vchar_forced_alloc(&context->cbuff);
     context->cppos = 0;
-//    vchar_init(&context->sbuff);
-//    vchar_forced_alloc(&context->sbuff);
     context->sppos = 0;
     context->sended = 0;
 
-//    context->is_from_cache = 0;
     context->connection_state = NOT_CONNECTED;
     context->client_fd = client_fd;
     context->server_fd = -1;
@@ -79,14 +79,18 @@ wakeup(handler_context_t *context) {
 }
 
 
+static void
+destroy_cache_entry(cache_entry_t* entry){
+    ASSERT(pthread_mutex_destroy(&entry->lock)==0);
+    vchar_free(&entry->buff);
+    free(entry->waiter_client_events);
+}
+
+
 void
 destroy_context(handler_context_t *context) {
-    fprintf(stderr, "%d\n", context->client_fd);
-    request_destroy(&context->request);
-    response_destroy(&context->response);
-    vchar_free(&context->cbuff);
-
     if (context->entry != NULL) {
+        lock(context->hm);
         ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
         if (context->is_master) {
             wakeup(context);
@@ -94,18 +98,32 @@ destroy_context(handler_context_t *context) {
                 context->entry->status = NEED_NEW_MASTER;
                 store_master_state_on_client_error(context);
                 context->server_fd = -1;
-            } else if (context->handling_step != HANDLED) {
+            } else if (context->handling_step != HANDLED && context->entry->status != VALID) {
                 context->entry->status = INVALID;
                 vchar_free(&context->entry->buff);
             }
-            context->entry->cnt_of_clients--;
         } else {
             if (context->my_waiter_id != -1) {
                 context->entry->waiter_client_events[context->my_waiter_id] = NULL;
             }
         }
+        context->entry->cnt_of_clients--;
+        int im_last_and_invalid = context->entry->cnt_of_clients==0 && context->entry->status == INVALID;
+
         ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
+
+        if(im_last_and_invalid){
+            destroy_cache_entry(context->entry);
+            hash_map_delete(context->hm, &context->request);
+            free(context->entry);
+        }
+
+        unlock(context->hm);
     }
+
+    request_destroy(&context->request);
+    response_destroy(&context->response);
+    vchar_free(&context->cbuff);
 
     close(context->client_fd);
     if (context->server_fd != -1) {
@@ -118,26 +136,13 @@ destroy_context(handler_context_t *context) {
 }
 
 
-static char *
-str_copy(const char *src) {
-    if (src == NULL) {
-        return NULL;
-    }
-    size_t len = strlen(src);
-    char *copy = malloc(len + 1);
-    ASSERT(copy != NULL);
-    memcpy(copy, src, len + 1);
-    return copy;
-}
-
-
 static void
 init_cache_entry(cache_entry_t *entry) {
     vchar_init(&entry->buff);
     //TODO
-    entry->waiter_client_events = malloc(sizeof(int *) * 1000);
     entry->waiter_client_events = malloc(sizeof(handler_context_t *) * 1000);
     entry->state = malloc(sizeof(handler_context_t));
+    ASSERT(entry->waiter_client_events != NULL && entry->state != NULL);
     entry->cnt_of_clients = 0;
     entry->cnt_waiters = 0;
     entry->status = DOWNLOADING;
@@ -147,21 +152,7 @@ init_cache_entry(cache_entry_t *entry) {
 
 static void
 add_to_cache(handler_context_t *context) {
-    request_t *req_copy = malloc(sizeof(request_t));
-    ASSERT(req_copy != NULL);
-    request_init(req_copy);
-    req_copy->type = str_copy(context->request.type);
-    req_copy->uri = str_copy(context->request.uri);
-    req_copy->version = str_copy(context->request.version);
-    req_copy->body = str_copy(context->request.body);
-
-    for (size_t i = 0; i < context->request.headers.cnt; ++i) {
-        header_t copy;
-        header_t *orig = vheader_t_get(&context->request.headers, i);
-        copy.value = str_copy(orig->value);
-        copy.type = str_copy(orig->type);
-        vheader_t_push_back(&req_copy->headers, &copy);
-    }
+    request_t *req_copy = request_copy(&context->request);
 
     context->entry = malloc(sizeof(cache_entry_t));
     ASSERT(context->entry != NULL);
@@ -173,7 +164,7 @@ add_to_cache(handler_context_t *context) {
 
 
 enum Config {
-    MIN_READ_BUFF_SIZE = 1000000,
+    MIN_READ_BUFF_SIZE = 100000,
     DEFAULT_PORT = 80,
     //RECV_TIMEOUT_US = 250000
 };
@@ -266,18 +257,24 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
             lock(context->hm);
             cache_entry_t **entryPtr = (cache_entry_t **) hash_map_get(context->hm, &context->request);
             cache_entry_t *entry = entryPtr == NULL ? NULL : *entryPtr;
-            if (entry != NULL && entry->status != INVALID) {
-                context->is_master = 0;
-                context->entry = entry;
-                fprintf(stderr, "from cache\n");
+            if (entry != NULL) {
+                ASSERT(pthread_mutex_lock(&entry->lock) == 0);
 
-                context->client_events = POLLOUT;
-                context->server_events = 0;
-                context->handling_step = SENDING_RESP;
-                context->sended = 0;
-                CRITICAL_M(context->entry->lock, context->entry->cnt_of_clients++);
-                unlock(context->hm);
-                return;
+                if(entry->status != INVALID) {
+                    context->is_master = 0;
+                    context->entry = entry;
+                    fprintf(stderr, "from cache\n");
+
+                    context->client_events = POLLOUT;
+                    context->server_events = 0;
+                    context->handling_step = SENDING_RESP;
+                    context->sended = 0;
+                    context->entry->cnt_of_clients++;
+                    ASSERT(pthread_mutex_unlock(&entry->lock) == 0);
+                    unlock(context->hm);
+                    return;
+                }
+                ASSERT(pthread_mutex_unlock(&entry->lock) == 0);
             }
             context->is_master = 1;
             add_to_cache(context);
@@ -474,7 +471,8 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
         context->sppos = bcnt;
         context->handling_step = SENDING_RESP;
 
-        CRITICAL_M(context->entry->lock, context->entry->status = VALID);
+        CRITICAL_M(context->entry->lock,
+                   context->entry->status = VALID; vchar_truncate(&context->entry->buff));
         return;
     }
 
@@ -501,7 +499,8 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
                     context->server_events = 0;
                     context->response.content_length = (long) context->read_;
                     context->handling_step = SENDING_RESP;
-                    CRITICAL_M(context->entry->lock, context->entry->status = VALID);
+                    CRITICAL_M(context->entry->lock,
+                               context->entry->status = VALID; vchar_truncate(&context->entry->buff));
                     return;
                 }
 

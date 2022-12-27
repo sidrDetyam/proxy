@@ -45,6 +45,9 @@ void
 CONCAT(VECTOR, _pop_back) (struct VECTOR* vector);
 
 void
+CONCAT(VECTOR, _truncate) (struct VECTOR* vector);
+
+void
 CONCAT(VECTOR, _init) (struct VECTOR* vector);
 
 void

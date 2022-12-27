@@ -221,3 +221,38 @@ request_equals(void *req1_, void *req2_) {
 
     return eq;
 }
+
+
+char *
+str_copy(const char *src) {
+    if (src == NULL) {
+        return NULL;
+    }
+    size_t len = strlen(src);
+    char *copy = malloc(len + 1);
+    ASSERT(copy != NULL);
+    memcpy(copy, src, len + 1);
+    return copy;
+}
+
+
+request_t *
+request_copy(request_t* request){
+    request_t *req_copy = malloc(sizeof(request_t));
+    ASSERT(req_copy != NULL);
+    request_init(req_copy);
+    req_copy->type = str_copy(request->type);
+    req_copy->uri = str_copy(request->uri);
+    req_copy->version = str_copy(request->version);
+    req_copy->body = str_copy(request->body);
+
+    for (size_t i = 0; i < request->headers.cnt; ++i) {
+        header_t copy;
+        header_t *orig = vheader_t_get(&request->headers, i);
+        copy.value = str_copy(orig->value);
+        copy.type = str_copy(orig->type);
+        vheader_t_push_back(&req_copy->headers, &copy);
+    }
+
+    return req_copy;
+}

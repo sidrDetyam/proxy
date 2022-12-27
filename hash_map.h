@@ -42,6 +42,9 @@ void*
 hash_map_get(hash_map_t* hm, void* key);
 
 void
+hash_map_delete(hash_map_t* hm, void* key);
+
+void
 lock(hash_map_t* hm);
 
 void

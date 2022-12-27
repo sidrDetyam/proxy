@@ -106,6 +106,23 @@ hash_map_get(hash_map_t* hm, void* key){
 
 
 void
+hash_map_delete(hash_map_t* hm, void* key){
+    ASSERT(pthread_mutex_lock(&hm->mutex) == 0);
+    vpair_t* bucket = find_bucket_or_create(hm, key);
+
+    for(size_t i=0; i<bucket->cnt; ++i){
+        pair_t* p = vpair_t_get(bucket, i);
+        if(hm->equals(p->key, key)){
+            vpair_t_remove(bucket, i);
+            ASSERT(pthread_mutex_unlock(&hm->mutex) == 0);
+            return;
+        }
+    }
+    ASSERT(pthread_mutex_unlock(&hm->mutex) == 0);
+}
+
+
+void
 lock(hash_map_t* hm){
     ASSERT(pthread_mutex_lock(&hm->mutex)==0);
 }
