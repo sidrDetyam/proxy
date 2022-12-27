@@ -63,18 +63,38 @@ void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
 }
 
 
+enum Config {
+    MIN_READ_BUFF_SIZE = 100000,
+    DEFAULT_PORT = 80,
+    MIN_WAKEUP_SIZE = 1000001,
+    //RECV_TIMEOUT_US = 250000
+};
+
+
 static void
-wakeup(handler_context_t *context) {
+wakeup(handler_context_t *context, int forced) {
     context->client_events = POLLOUT;
     if (context->is_master) {
+        size_t new_cnt_waiters = 0;
         for (size_t i = 0; i < context->entry->cnt_waiters; ++i) {
             handler_context_t *waiter = context->entry->waiter_client_events[i];
             if (waiter != NULL) {
-                (*waiter).client_events = POLLOUT;
-                (*waiter).my_waiter_id = -1;
+                if(context->entry->buff.cnt - waiter->sended > MIN_WAKEUP_SIZE || forced) {
+                    (*waiter).client_events = POLLOUT;
+                    (*waiter).my_waiter_id = -1;
+                }
+                else{
+                    if(new_cnt_waiters != i){
+                        memcpy(context->entry->waiter_client_events+new_cnt_waiters,
+                               context->entry->waiter_client_events+i,
+                               sizeof(handler_context_t*));
+                    }
+                    waiter->my_waiter_id = (ssize_t)new_cnt_waiters;
+                    ++new_cnt_waiters;
+                }
             }
         }
-        context->entry->cnt_waiters = 0;
+        context->entry->cnt_waiters = new_cnt_waiters;
     }
 }
 
@@ -93,7 +113,7 @@ destroy_context(handler_context_t *context) {
         lock(context->hm);
         ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
         if (context->is_master) {
-            wakeup(context);
+            wakeup(context, 1);
             if (context->handling_step == PARSING_RESP_BODY && context->entry->cnt_of_clients > 1) {
                 context->entry->status = NEED_NEW_MASTER;
                 store_master_state_on_client_error(context);
@@ -161,13 +181,6 @@ add_to_cache(handler_context_t *context) {
     context->entry->cnt_of_clients = 1;
     hash_map_put(context->hm, req_copy, &context->entry);
 }
-
-
-enum Config {
-    MIN_READ_BUFF_SIZE = 100000,
-    DEFAULT_PORT = 80,
-    //RECV_TIMEOUT_US = 250000
-};
 
 
 static int
@@ -455,7 +468,7 @@ parsing_resp_body(handler_context_t *context, int fd, int events, int non_splitt
             return;
         }
         if (read_ > 0) {
-            wakeup(context);
+            wakeup(context, 0);
             context->read_ += read_;
         }
         ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
