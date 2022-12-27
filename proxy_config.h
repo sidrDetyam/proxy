@@ -6,7 +6,7 @@
 #define PTHREAD___PROXY_CONFIG_H
 
 enum Config {
-    MAX_CONNECTIONS = 100,
+    MAX_CONNECTIONS = 1000,
     PORT = 4242,
     POLL_TIMEOUT = 1000
 };
