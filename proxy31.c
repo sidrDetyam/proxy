@@ -60,7 +60,11 @@ main() {
         }
         for (size_t i = 1; i < fds_count; ++i) {
             ssize_t ind;
-            if (fds[i].revents == 0 || (ind=find_context(context1, contexts_count, fds[i].fd)) == -1) {
+            if((ind=find_context(context1, contexts_count, fds[i].fd)) == -1){
+                fprintf(stderr, "here\n");
+                continue;
+            }
+            if (fds[i].revents == 0) {
                 continue;
             }
 
@@ -69,9 +73,14 @@ main() {
 
                 handle(context1 + ind, fds[i].fd, fds[i].revents);
                 if (context1[ind].handling_step == HANDLED || context1[ind].handling_step == HANDLED_EXCEPTIONALLY) {
-                    for (size_t j = ind; j < contexts_count; ++j) {
+                    for (size_t j = ind; j < contexts_count-1; ++j) {
+                        handler_context_t *hc = context1+j+1;
+                        if(hc->entry != NULL && hc->my_waiter_id != -1){
+                            hc->entry->waiter_client_events[hc->my_waiter_id] = context1+j;
+                        }
                         memcpy(context1 + j, context1 + j + 1, sizeof(handler_context_t));
                     }
+                    --i;
                     --contexts_count;
                     fprintf(stderr, "disconnect %d %zu\n", context1[ind].client_fd, contexts_count);
                 }

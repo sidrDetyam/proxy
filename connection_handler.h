@@ -58,6 +58,7 @@ struct CacheEntry{
     vchar buff;
     int status;
     handler_context_t ** waiter_client_events;
+    handler_context_t ** clients;
     size_t cnt_waiters;
 
     handler_context_t *state;
