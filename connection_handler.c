@@ -11,19 +11,22 @@
 #include <poll.h>
 #include "common.h"
 #include "socket_utils.h"
-
+#include "proxy_config.h"
 
 void
 store_master_state_on_client_error(handler_context_t *masters_context) {
-    ASSERT(masters_context->entry->status == NEED_NEW_MASTER);
-    memcpy(masters_context->entry->state, masters_context, sizeof(handler_context_t));
-    //memcpy(&masters_context->entry->state->request, request_copy(&masters_context->request), sizeof(request_t));
+    handler_context_t* state = masters_context->entry->state;
+    ASSERT(masters_context->is_master && masters_context->entry->status == NEED_NEW_MASTER);
+    memcpy(state, masters_context, sizeof(handler_context_t));
+    request_init(&masters_context->request);
+    response_init(&masters_context->response);
+    vchar_init(&masters_context->cbuff);
 }
 
 
 void
 load_master_state(handler_context_t *context) {
-    ASSERT(context->handling_step == SENDING_RESP && context->entry->state->handling_step >= PARSING_RESP_BODY);
+    //ASSERT(context->handling_step == SENDING_RESP && context->entry->state->handling_step >= PARSING_RESP_BODY);
     handler_context_t *state = context->entry->state;
     context->handling_step = state->handling_step;
     context->server_fd = state->server_fd;
@@ -37,14 +40,13 @@ load_master_state(handler_context_t *context) {
     context->is_master = 1;
     context->entry->status = DOWNLOADING;
     context->response.content_length = state->response.content_length;
-    //memcpy(&context->request, state->)
 }
 
 
-void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
+void
+init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
     request_init(&context->request);
     response_init(&context->response);
-
     context->entry = NULL;
     context->my_waiter_id = -1;
     vchar_init(&context->cbuff);
@@ -52,7 +54,6 @@ void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
     context->cppos = 0;
     context->sppos = 0;
     context->sended = 0;
-
     context->connection_state = NOT_CONNECTED;
     context->client_fd = client_fd;
     context->server_fd = -1;
@@ -66,43 +67,42 @@ void init_context(handler_context_t *context, int client_fd, hash_map_t *hm) {
 enum Config {
     MIN_READ_BUFF_SIZE = 100000,
     DEFAULT_PORT = 80,
-    MIN_WAKEUP_SIZE = 1000001,
-    //RECV_TIMEOUT_US = 250000
+    MIN_WAKEUP_SIZE = 500001
 };
 
 
 static void
 wakeup(handler_context_t *context, int forced) {
+    ASSERT(context->is_master);
     context->client_events = POLLOUT;
-    if (context->is_master) {
-        size_t new_cnt_waiters = 0;
-        for (size_t i = 0; i < context->entry->cnt_waiters; ++i) {
-            handler_context_t *waiter = context->entry->waiter_client_events[i];
-            if (waiter != NULL) {
-                if(context->entry->buff.cnt - waiter->sended > MIN_WAKEUP_SIZE || forced) {
-                    (*waiter).client_events = POLLOUT;
-                    (*waiter).my_waiter_id = -1;
+    size_t new_cnt_waiters = 0;
+    for (size_t i = 0; i < context->entry->cnt_waiters; ++i) {
+        handler_context_t *waiter = context->entry->waiter_client_events[i];
+        if (waiter != NULL) {
+            ASSERT(waiter->my_waiter_id == i && waiter->entry == context->entry);
+            if (context->entry->buff.cnt - waiter->sended > MIN_WAKEUP_SIZE || forced) {
+                waiter->client_events = POLLOUT;
+                waiter->my_waiter_id = -1;
+            } else {
+                if (new_cnt_waiters != i) {
+                    memcpy(context->entry->waiter_client_events + new_cnt_waiters,
+                           context->entry->waiter_client_events + i,
+                           sizeof(handler_context_t *));
                 }
-                else{
-                    if(new_cnt_waiters != i){
-                        memcpy(context->entry->waiter_client_events+new_cnt_waiters,
-                               context->entry->waiter_client_events+i,
-                               sizeof(handler_context_t*));
-                    }
-                    waiter->my_waiter_id = (ssize_t)new_cnt_waiters;
-                    ++new_cnt_waiters;
-                }
+                waiter->my_waiter_id = (ssize_t) new_cnt_waiters;
+                ++new_cnt_waiters;
             }
         }
-        context->entry->cnt_waiters = new_cnt_waiters;
     }
+    context->entry->cnt_waiters = new_cnt_waiters;
 }
 
 
 static void
-destroy_cache_entry(cache_entry_t* entry){
-    ASSERT(pthread_mutex_destroy(&entry->lock)==0);
+destroy_cache_entry(cache_entry_t *entry) {
+    ASSERT(pthread_mutex_destroy(&entry->lock) == 0);
     vchar_free(&entry->buff);
+    free(entry->state);
     free(entry->waiter_client_events);
 }
 
@@ -114,30 +114,30 @@ destroy_context(handler_context_t *context) {
         ASSERT(pthread_mutex_lock(&context->entry->lock) == 0);
         if (context->is_master) {
             wakeup(context, 1);
-            if (context->handling_step == PARSING_RESP_BODY && context->entry->cnt_of_clients > 1) {
+            if (context->entry->status == DOWNLOADING && context->entry->cnt_of_clients > 1) {
                 context->entry->status = NEED_NEW_MASTER;
                 store_master_state_on_client_error(context);
                 context->server_fd = -1;
-            } else if (context->handling_step != HANDLED && context->entry->status != VALID) {
-                context->entry->status = INVALID;
-                vchar_free(&context->entry->buff);
             }
-        } else {
-            if (context->my_waiter_id != -1) {
-                context->entry->waiter_client_events[context->my_waiter_id] = NULL;
+            else {
+                if (context->handling_step != HANDLED && context->entry->status != VALID) {
+                    context->entry->status = INVALID;
+                    vchar_free(&context->entry->buff);
+                }
             }
         }
+        if (context->my_waiter_id != -1) {
+            context->entry->waiter_client_events[context->my_waiter_id] = NULL;
+        }
+
         context->entry->cnt_of_clients--;
-        int im_last_and_invalid = context->entry->cnt_of_clients==0 && context->entry->status == INVALID;
-
+        int im_last_and_invalid = context->entry->cnt_of_clients == 0 && context->entry->status == INVALID;
         ASSERT(pthread_mutex_unlock(&context->entry->lock) == 0);
-
-        if(im_last_and_invalid){
+        if (im_last_and_invalid) {
             destroy_cache_entry(context->entry);
             hash_map_delete(context->hm, &context->request);
             free(context->entry);
         }
-
         unlock(context->hm);
     }
 
@@ -159,7 +159,6 @@ destroy_context(handler_context_t *context) {
 static void
 init_cache_entry(cache_entry_t *entry) {
     vchar_init(&entry->buff);
-    //TODO
     entry->waiter_client_events = malloc(sizeof(handler_context_t *) * 1000);
     entry->state = malloc(sizeof(handler_context_t));
     ASSERT(entry->waiter_client_events != NULL && entry->state != NULL);
@@ -173,12 +172,12 @@ init_cache_entry(cache_entry_t *entry) {
 static void
 add_to_cache(handler_context_t *context) {
     request_t *req_copy = request_copy(&context->request);
-
     context->entry = malloc(sizeof(cache_entry_t));
     ASSERT(context->entry != NULL);
     init_cache_entry(context->entry);
     context->is_master = 1;
     context->entry->cnt_of_clients = 1;
+    context->entry->cnt_waiters = 0;
     hash_map_put(context->hm, req_copy, &context->entry);
 }
 
@@ -186,7 +185,6 @@ add_to_cache(handler_context_t *context) {
 static int
 read_to_vchar(int fd, vchar *buff, size_t *read_) {
     vchar_alloc2(buff, MIN_READ_BUFF_SIZE + 1);
-    //printf("read!!\n");
     ssize_t cnt = read(fd, &buff->ptr[buff->cnt], MIN_READ_BUFF_SIZE);
     if (cnt == -1 || cnt == 0) {
         return ERROR;
@@ -273,11 +271,13 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
             if (entry != NULL) {
                 ASSERT(pthread_mutex_lock(&entry->lock) == 0);
 
-                if(entry->status != INVALID) {
+                if (entry->status != INVALID) {
+                    ASSERT(*((cache_entry_t **) hash_map_get(context->hm, &context->request)) == entry);
                     context->is_master = 0;
                     context->entry = entry;
+#ifdef DEBUG
                     fprintf(stderr, "from cache\n");
-
+#endif
                     context->client_events = POLLOUT;
                     context->server_events = 0;
                     context->handling_step = SENDING_RESP;
@@ -287,6 +287,7 @@ parsing_req_headers_step(handler_context_t *context, int fd, int events, int non
                     unlock(context->hm);
                     return;
                 }
+                ASSERT(0);
                 ASSERT(pthread_mutex_unlock(&entry->lock) == 0);
             }
             context->is_master = 1;
@@ -434,8 +435,6 @@ parsing_resp_headers_step(handler_context_t *context, int fd, int events, int no
                 context->handling_step = SENDING_RESP;
                 return WAIT;
             }
-//            ASSERT_RETURN2_C(ch_header != NULL || cl_header != NULL,
-//                             destroy_context(context),);
 
             context->response.content_length = cl_header != NULL ?
                                                (long) strtol(cl_header->value, NULL, 10) : -1;
@@ -550,7 +549,7 @@ send_resp_in_receiving(handler_context_t *context, int fd, int events) {
         ASSERT_RETURN2_C(cnt > 0, destroy_context(context),);
         context->sended += cnt;
     } else {
-        if (!context->is_master) {
+        if (!context->is_master && context->my_waiter_id == -1 && context->entry->status == DOWNLOADING) {
             cache_entry_t *entry = context->entry;
             entry->waiter_client_events[entry->cnt_waiters] = context;
             context->my_waiter_id = (ssize_t) entry->cnt_waiters;
@@ -565,8 +564,11 @@ send_resp_in_receiving(handler_context_t *context, int fd, int events) {
 static void
 send_resp_step(handler_context_t *context, int fd, int events) {
     send_resp_in_receiving(context, fd, events);
-    if (context->sended == context->entry->buff.cnt && context->entry->status == VALID) {
-        //destroy_context_on_cached(context);
+    int is_end;
+    CRITICAL_M(context->entry->lock,
+               is_end = context->sended == context->entry->buff.cnt && context->entry->status == VALID);
+
+    if (is_end) {
         context->handling_step = HANDLED;
         destroy_context(context);
     }

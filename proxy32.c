@@ -40,7 +40,9 @@ handler_subroutine(void *arg_) {
 
                 handle(context, fds[i].fd, fds[i].revents);
                 if (context->handling_step == HANDLED || context->handling_step == HANDLED_EXCEPTIONALLY) {
+#ifdef DEBUG
                     fprintf(stderr, "handled\n");
+#endif
                     ASSERT(pthread_spin_lock(arg->spinlock) == 0);
                     --arg->cnt_of_threads;
                     ASSERT(pthread_spin_unlock(arg->spinlock) == 0);
@@ -108,6 +110,8 @@ main() {
         ASSERT(pthread_attr_init(&tattr)==0);
         ASSERT(pthread_attr_setdetachstate(&tattr, PTHREAD_CREATE_DETACHED)==0);
         ASSERT(pthread_create(tid, &tattr, handler_subroutine, arg) == 0);
+#ifdef DEBUG
         fprintf(stderr, "connect\n");
+#endif
     }
 }

@@ -93,7 +93,7 @@ CONCAT(VECTOR, _pop_back)(struct VECTOR *vector) {
 
 void
 CONCAT(VECTOR, _remove)(struct VECTOR *vector, size_t ind) {
-    for (size_t i = ind; i < vector->cnt; ++i) {
+    for (size_t i = ind; i < vector->cnt-1; ++i) {
         memcpy(&vector->ptr[i], &vector->ptr[i + 1], sizeof(ELEMENT_TYPE));
     }
     --vector->cnt;
@@ -124,6 +124,13 @@ CONCAT(VECTOR, _free_ptr)(struct VECTOR *vector) {
     }
     CONCAT(VECTOR, _free)(vector);
 }
+
+
+void
+CONCAT(VECTOR, _clear) (struct VECTOR* vector){
+    vector->cnt = 0;
+}
+
 
 #undef REALLOC_RATIO
 #undef ELEMENT_TYPE
