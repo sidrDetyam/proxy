@@ -56,15 +56,13 @@ main() {
 
             init_context(context1 + contexts_count, new_fd, &hm);
             ++contexts_count;
+#ifdef DEBUG
             fprintf(stderr, "connect %zu\n", contexts_count);
+#endif
         }
         for (size_t i = 1; i < fds_count; ++i) {
             ssize_t ind;
-            if((ind=find_context(context1, contexts_count, fds[i].fd)) == -1){
-                fprintf(stderr, "here\n");
-                continue;
-            }
-            if (fds[i].revents == 0) {
+            if(fds[i].revents == 0 || (ind=find_context(context1, contexts_count, fds[i].fd)) == -1){
                 continue;
             }
 
@@ -82,7 +80,9 @@ main() {
                     }
                     --i;
                     --contexts_count;
+#ifdef DEBUG
                     fprintf(stderr, "disconnect %d %zu\n", context1[ind].client_fd, contexts_count);
+#endif
                 }
             }
         }

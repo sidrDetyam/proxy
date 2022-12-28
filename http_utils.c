@@ -12,6 +12,9 @@
 #define ELEMENT_TYPE char
 #include "cvector_impl.h"
 
+#define ELEMENT_TYPE void_ptr
+#include "cvector_impl.h"
+
 
 void
 request_init(request_t* request){
