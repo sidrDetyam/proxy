@@ -7,9 +7,9 @@
 #include <poll.h>
 #include <signal.h>
 
-#include "socket_utils.h"
-#include "common.h"
-#include "connection_handler.h"
+#include "../include/socket_utils.h"
+#include "../utils/common.h"
+#include "../include/connection_handler.h"
 #include "proxy_config.h"
 
 

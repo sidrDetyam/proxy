@@ -16,7 +16,7 @@ typedef struct Pair pair_t;
 
 #define ELEMENT_TYPE pair_t
 
-#include "cvector_def.h"
+#include "../utils/cvector_def.h"
 
 enum{
     BUCKETS_SIZE = 1000

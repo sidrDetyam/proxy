@@ -2,16 +2,16 @@
 // Created by argem on 03.12.2022.
 //
 
-#include "connection_handler.h"
+#include "../include/connection_handler.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <poll.h>
-#include "common.h"
-#include "socket_utils.h"
-#include "proxy_config.h"
+#include "../utils/common.h"
+#include "../include/socket_utils.h"
+#include "../proxy/proxy_config.h"
 
 void
 store_master_state_on_client_error(handler_context_t *masters_context) {

@@ -2,11 +2,11 @@
 // Created by argem on 07.12.2022.
 //
 
-#include "hash_map.h"
-#include "common.h"
+#include "../include/hash_map.h"
+#include "../utils/common.h"
 
 #define ELEMENT_TYPE pair_t
-#include "cvector_impl.h"
+#include "../utils/cvector_impl.h"
 
 void
 hash_map_init(hash_map_t* hm, size_t ks, size_t vs, int (*hash)(void*), int (*equals)(void*, void*)){

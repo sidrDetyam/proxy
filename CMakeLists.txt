@@ -3,13 +3,13 @@ project(proxy C)
 
 set(CMAKE_C_STANDARD 11)
 
+file(GLOB sources src/*.c)
+file(GLOB headers include/*.h)
+file(GLOB utils utils/*)
 
 add_executable(proxy
-        proxy31.c
-        #proxy32.c
-        proxy_config.h
-        socket_utils.h socket_utils.c common.h http_utils.h cvector_def.h
-        cvector_impl.h http_utils.c connection_handler.h connection_handler.c
-        hash_map.h hash_map.c)
+        proxy/proxy31.c
+        proxy/proxy_config.h
+        ${sources} ${headers} ${utils})
 
 target_link_libraries(proxy pthread)

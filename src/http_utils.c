@@ -2,18 +2,18 @@
 // Created by argem on 01.12.2022.
 //
 
-#include "http_utils.h"
+#include "../include/http_utils.h"
 
 #include <string.h>
 
 #define ELEMENT_TYPE header_t
-#include "cvector_impl.h"
+#include "../utils/cvector_impl.h"
 
 #define ELEMENT_TYPE char
-#include "cvector_impl.h"
+#include "../utils/cvector_impl.h"
 
 #define ELEMENT_TYPE void_ptr
-#include "cvector_impl.h"
+#include "../utils/cvector_impl.h"
 
 
 void
